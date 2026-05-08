@@ -1,0 +1,3 @@
+Place your crystal-bg.png here!
+Rename it to: crystal-bg.png
+This is the teal crystal background image from ChatGPT.
