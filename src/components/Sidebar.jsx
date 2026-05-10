@@ -12,7 +12,30 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <NavLink to="/" className="sidebar-logo">
-        <div className="sidebar-logo-icon">M</div>
+   <div
+  className="sidebar-logo-icon"
+  style={{
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '36px',
+    height: '36px',
+ background: 'transparent',
+    overflow: 'hidden',
+  }}
+>
+ <img
+  src="/logo.png"
+  alt="MantleMind"
+  style={{
+    width: '32px',
+    height: '32px',
+    objectFit: 'cover',
+    transform: 'scale(2.0)',
+    filter: 'drop-shadow(0 0 10px rgba(255,255,255,0.55))',
+  }}
+/>
+</div>
         <span className="sidebar-logo-text">MantleMind</span>
       </NavLink>
       <nav className="sidebar-nav">
@@ -25,20 +48,55 @@ export default function Sidebar() {
         ))}
       </nav>
       <div className="sidebar-ai-card">
-        <div className="sidebar-ai-title">MantleMind AI</div>
-        <div className="sidebar-ai-sub">Autonomous.<br />Intelligent.<br />Unstoppable.</div>
-        <div className="sidebar-ai-visual">🧠</div>
-      </div>
-      <div className="sidebar-price-card">
-        <div className="sidebar-price-label">MNT Price</div>
-        <div className="sidebar-price-val">$0.6724</div>
-        <div className="sidebar-price-change">▲ +6.21% today</div>
-        <div style={{ marginTop: '8px', height: '32px', display: 'flex', alignItems: 'flex-end', gap: '2px' }}>
-          {[3,5,4,6,5,7,6,8,7,9,8,10].map((h, i) => (
-            <div key={i} style={{ flex: 1, height: `${h * 3}px`, background: i > 8 ? '#fff' : 'rgba(255,255,255,0.2)', borderRadius: '1px' }} />
-          ))}
-        </div>
-      </div>
+  <div className="sidebar-ai-title">MantleMind AI</div>
+
+  <div className="sidebar-ai-sub">
+    Autonomous.<br />
+    Intelligent.<br />
+    Unstoppable.
+  </div>
+
+  {/* LOGO VISUAL */}
+  <div
+    className="sidebar-ai-visual"
+    style={{
+      marginTop: '18px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    }}
+  >
+    <div
+      style={{
+        width: '72px',
+        height: '72px',
+        borderRadius: '20px',
+        background:
+          'linear-gradient(145deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02))',
+        border: '1px solid rgba(255,255,255,0.08)',
+        backdropFilter: 'blur(10px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        boxShadow:
+          '0 0 30px rgba(255,255,255,0.08), inset 0 0 20px rgba(255,255,255,0.03)',
+      }}
+    >
+      <img
+        src="/logo.png"
+        alt="MantleMind"
+        style={{
+          width: '92px',
+          height: '42px',
+          objectFit: 'contain',
+          transform: 'scale(1.8)',
+          filter:
+            'drop-shadow(0 0 18px rgba(255,255,255,0.5)) brightness(1.15)',
+        }}
+      />
+    </div>
+  </div>
+</div>
     </aside>
   );
 }
