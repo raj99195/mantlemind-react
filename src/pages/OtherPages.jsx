@@ -9,7 +9,6 @@ const EXPLORER = 'https://explorer.sepolia.mantle.xyz/tx/';
 export function Transactions() {
   const [active, setActive] = useState('All');
   const { events, isLoading } = useOnChainEvents(100);
-
   const filtered = active === 'All' ? events : events.filter(e => e.type === active);
 
   const exportCSV = () => {
@@ -31,13 +30,11 @@ export function Transactions() {
         </div>
         <button onClick={exportCSV} className="btn btn-ghost" style={{ fontSize:'12px' }}>↓ Export CSV</button>
       </div>
-
       <div className="filter-bar">
         {TX_FILTERS.map(f => (
           <button key={f} onClick={() => setActive(f)} className={`filter-pill${active===f?' active':''}`}>{f}</button>
         ))}
       </div>
-
       <div className="card">
         {isLoading ? (
           <div style={{ textAlign:'center', padding:'40px', color:'#444' }}>
@@ -45,9 +42,7 @@ export function Transactions() {
             Loading on-chain events...
           </div>
         ) : filtered.length === 0 ? (
-          <div style={{ textAlign:'center', padding:'40px', color:'#444' }}>
-            No transactions found
-          </div>
+          <div style={{ textAlign:'center', padding:'40px', color:'#444' }}>No transactions found</div>
         ) : (
           <div style={{ overflowX:'auto' }}>
             <table className="data-table">
@@ -59,22 +54,11 @@ export function Transactions() {
                   <tr key={i}>
                     <td><span className="badge badge-outline">{tx.type}</span></td>
                     <td style={{ color:'#ccc', maxWidth:'200px', fontSize:'12px' }}>{tx.desc}</td>
-                    <td>
-                      <span style={{ fontFamily:'JetBrains Mono', fontSize:'10px', color:'#555' }}>
-                        {tx.shortHash}
-                      </span>
-                    </td>
+                    <td><span style={{ fontFamily:'JetBrains Mono', fontSize:'10px', color:'#555' }}>{tx.shortHash}</span></td>
                     <td style={{ fontFamily:'JetBrains Mono', fontSize:'12px' }}>{tx.amount}</td>
-                    <td>
-                      <span className={`badge ${tx.status === 'Confirmed' ? 'badge-white' : 'badge-dim'}`}>
-                        {tx.status}
-                      </span>
-                    </td>
+                    <td><span className={`badge ${tx.status === 'Confirmed' ? 'badge-white' : 'badge-dim'}`}>{tx.status}</span></td>
                     <td style={{ color:'#444', fontSize:'11px' }}>{tx.time}</td>
-                    <td>
-                      <a href={EXPLORER + tx.hash} target="_blank" rel="noreferrer"
-                        style={{ color:'#555', fontSize:'11px' }}>↗</a>
-                    </td>
+                    <td><a href={EXPLORER + tx.hash} target="_blank" rel="noreferrer" style={{ color:'#555', fontSize:'11px' }}>↗</a></td>
                   </tr>
                 ))}
               </tbody>
@@ -82,7 +66,7 @@ export function Transactions() {
           </div>
         )}
         <div style={{ textAlign:'center', marginTop:'16px', paddingTop:'16px', borderTop:'0.5px solid rgba(255,255,255,0.06)' }}>
-          <a href={`https://explorer.sepolia.mantle.xyz/address/${ADDRESSES.AgentRegistry}`}
+          <a href={'https://explorer.sepolia.mantle.xyz/address/' + ADDRESSES.AgentRegistry}
             target="_blank" rel="noreferrer" className="btn btn-outline" style={{ fontSize:'12px' }}>
             View all on Mantle Explorer ↗
           </a>
@@ -93,7 +77,6 @@ export function Transactions() {
 }
 
 export function Settings() {
-  // Load from localStorage
   const [t, setT] = useState(() => {
     try {
       const saved = localStorage.getItem('mantlemind_settings');
@@ -103,14 +86,12 @@ export function Settings() {
 
   const { address, isConnected } = useAccount();
 
-  // Save to localStorage on change
   useEffect(() => {
     localStorage.setItem('mantlemind_settings', JSON.stringify(t));
   }, [t]);
 
   const tog = k => setT(p => ({ ...p, [k]: !p[k] }));
 
-  // Check backend status
   const [backendStatus, setBackendStatus] = useState('checking');
   useEffect(() => {
     fetch('http://localhost:3001/api/health')
@@ -118,6 +99,82 @@ export function Settings() {
       .then(d => setBackendStatus(d.status === 'ok' ? 'connected' : 'error'))
       .catch(() => setBackendStatus('offline'));
   }, []);
+
+  // ===== TELEGRAM CONNECT =====
+  const [tgChatId, setTgChatId] = useState('');
+  const [tgUsername, setTgUsername] = useState('');
+  const [tgStatus, setTgStatus] = useState('idle'); // idle, loading, success, error
+  const [tgMessage, setTgMessage] = useState('');
+
+  // Load saved telegram info
+  useEffect(() => {
+    if (!address) return;
+    fetch('http://localhost:3001/api/users/' + address)
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && d.data) {
+          setTgChatId(d.data.telegram_chat_id || '');
+          setTgUsername(d.data.telegram_username || '');
+          setTgStatus('success');
+          setTgMessage('Telegram connected!');
+        }
+      })
+      .catch(() => {});
+  }, [address]);
+
+  const connectTelegram = async () => {
+    if (!tgChatId.trim() || !address) return;
+    setTgStatus('loading');
+    setTgMessage('');
+
+    try {
+      // Save to Supabase via backend
+      const saveRes = await fetch('http://localhost:3001/api/users/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          walletAddress: address,
+          telegramChatId: tgChatId.trim(),
+          telegramUsername: tgUsername.trim(),
+        })
+      });
+      const saveData = await saveRes.json();
+      if (!saveData.success) throw new Error(saveData.error);
+
+      // Send test message
+      const msgRes = await fetch('http://localhost:3001/api/telegram/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chatId: tgChatId.trim(),
+          message: `✅ <b>MantleMind Connected!</b>\n\nWallet: <code>${address.slice(0,6)}...${address.slice(-4)}</code>\n\nYour AI agents will now notify you here when they:\n• Hire other agents\n• Execute trades\n• Record decisions\n• Pay agent fees\n\n🤖 <i>MantleMind — Autonomous AI Agent Economy on Mantle</i>`
+        })
+      });
+      const msgData = await msgRes.json();
+      if (!msgData.success) throw new Error('Telegram message failed');
+
+      setTgStatus('success');
+      setTgMessage('Connected! Check your Telegram for confirmation message.');
+    } catch (err) {
+      setTgStatus('error');
+      setTgMessage(err.message?.slice(0, 80) || 'Connection failed');
+    }
+  };
+
+  const testTelegram = async () => {
+    if (!tgChatId) return;
+    try {
+      await fetch('http://localhost:3001/api/realclaw/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chatId: tgChatId,
+          command: '/status'
+        })
+      });
+      setTgMessage('RealClaw /status command sent!');
+    } catch { setTgMessage('Test failed'); }
+  };
 
   return (
     <div className="page-wrap" style={{ maxWidth:'800px' }}>
@@ -149,6 +206,83 @@ export function Settings() {
           </div>
         </div>
 
+        {/* Telegram Connect */}
+        <div className="card" style={{ border: tgStatus === 'success' ? '0.5px solid rgba(255,255,255,0.2)' : '0.5px solid rgba(255,255,255,0.06)' }}>
+          <div className="card-label">Telegram + RealClaw</div>
+          <p style={{ fontSize:'12px', color:'#555', marginBottom:'14px' }}>
+            Connect Telegram to receive agent notifications and control RealClaw
+          </p>
+
+          {/* How to get Chat ID */}
+          <div style={{ padding:'10px', background:'rgba(255,255,255,0.02)', borderRadius:'8px', marginBottom:'12px' }}>
+            <p style={{ fontSize:'11px', color:'#888', marginBottom:'6px' }}>How to get your Chat ID:</p>
+            <p style={{ fontSize:'11px', color:'#555' }}>1. Open <a href="https://t.me/mantlemind_bot" target="_blank" rel="noreferrer" style={{ color:'#888' }}>@mantlemind_bot</a> on Telegram</p>
+            <p style={{ fontSize:'11px', color:'#555' }}>2. Send <code style={{ background:'rgba(255,255,255,0.06)', padding:'1px 4px', borderRadius:'3px' }}>/whoami</code></p>
+            <p style={{ fontSize:'11px', color:'#555' }}>3. Copy your User ID and paste below</p>
+          </div>
+
+          <div style={{ display:'flex', gap:'8px', marginBottom:'8px', flexWrap:'wrap' }}>
+            <input
+              value={tgChatId}
+              onChange={e => setTgChatId(e.target.value)}
+              placeholder="Your Telegram Chat ID (e.g. 5448705703)"
+              style={{
+                flex:1, minWidth:'180px',
+                background:'rgba(255,255,255,0.04)',
+                border:'0.5px solid rgba(255,255,255,0.15)',
+                borderRadius:'8px', padding:'8px 12px',
+                color:'#fff', fontSize:'12px',
+                fontFamily:'JetBrains Mono', outline:'none'
+              }}
+            />
+            <input
+              value={tgUsername}
+              onChange={e => setTgUsername(e.target.value)}
+              placeholder="@username (optional)"
+              style={{
+                width:'160px',
+                background:'rgba(255,255,255,0.04)',
+                border:'0.5px solid rgba(255,255,255,0.15)',
+                borderRadius:'8px', padding:'8px 12px',
+                color:'#fff', fontSize:'12px',
+                outline:'none'
+              }}
+            />
+            <button
+              className="btn btn-white"
+              onClick={connectTelegram}
+              disabled={tgStatus === 'loading' || !tgChatId.trim()}
+              style={{ opacity: tgStatus === 'loading' ? 0.6 : 1, fontSize:'12px' }}
+            >
+              {tgStatus === 'loading' ? 'Connecting...' : tgStatus === 'success' ? 'Reconnect' : 'Connect'}
+            </button>
+            {tgStatus === 'success' && (
+              <button className="btn btn-ghost" onClick={testTelegram} style={{ fontSize:'12px' }}>
+                Test RealClaw
+              </button>
+            )}
+          </div>
+
+          {tgMessage && (
+            <div style={{
+              padding:'8px 10px', borderRadius:'6px', fontSize:'11px',
+              background: tgStatus === 'success' ? 'rgba(255,255,255,0.04)' : 'rgba(255,0,0,0.05)',
+              color: tgStatus === 'success' ? '#ccc' : '#ff6666',
+              borderLeft: `2px solid ${tgStatus === 'success' ? '#fff' : '#ff4444'}`
+            }}>
+              {tgMessage}
+            </div>
+          )}
+
+          {tgStatus === 'success' && tgUsername && (
+            <div style={{ marginTop:'8px', display:'flex', alignItems:'center', gap:'6px' }}>
+              <span style={{ fontSize:'11px', color:'#555' }}>Connected as</span>
+              <span className="badge badge-outline">{tgUsername}</span>
+              <span className="badge badge-white">ACTIVE</span>
+            </div>
+          )}
+        </div>
+
         {/* Agent Configuration */}
         <div className="card">
           <div className="card-label">Agent Configuration</div>
@@ -176,7 +310,7 @@ export function Settings() {
         <div className="card">
           <div className="card-label">Byreal Integration</div>
           {[
-            { name:'RealClaw', desc:'OpenClaw-based agent', icon:'⚡', status: 'CONNECTED' },
+            { name:'RealClaw', desc:'OpenClaw-based agent · @mantlemind_bot', icon:'⚡', status: tgStatus === 'success' ? 'CONNECTED' : 'SETUP REQUIRED' },
             { name:'Byreal Agent Skills', desc:'CLMM, LP & Swap', icon:'◈', status: backendStatus === 'connected' ? 'CONNECTED' : 'OFFLINE' },
             { name:'Byreal Perps CLI', desc:'Perpetual futures', icon:'↗', status: backendStatus === 'connected' ? 'CONNECTED' : 'OFFLINE' },
           ].map((b, i) => (
@@ -210,7 +344,7 @@ export function Settings() {
                 <p style={{ fontSize:'12px', color:'#888' }}>{c.name}</p>
                 <p style={{ fontSize:'10px', color:'#444', fontFamily:'JetBrains Mono', marginTop:'2px' }}>{c.addr}</p>
               </div>
-              <a href={`https://explorer.sepolia.mantle.xyz/address/${c.addr}`} target="_blank" rel="noreferrer"
+              <a href={'https://explorer.sepolia.mantle.xyz/address/' + c.addr} target="_blank" rel="noreferrer"
                 style={{ fontSize:'11px', color:'#555' }}>↗</a>
             </div>
           ))}

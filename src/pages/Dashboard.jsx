@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAccount } from 'wagmi';
 import { useAppKit } from '@reown/appkit/react';
@@ -11,7 +11,6 @@ import { runMasterMind, findAgentsByRole } from '../agents/masterMind';
 
 let feedCounter = 6;
 
-// Real agent row from contract
 function AgentRow({ agentId }) {
   const { agent } = useAgent(agentId);
   if (!agent?.name) return null;
@@ -35,14 +34,12 @@ function AgentRow({ agentId }) {
   );
 }
 
-// Hook to get all user agents with their data
 function useAllAgents(agentIds) {
   const a1 = useAgent(agentIds[0]);
   const a2 = useAgent(agentIds[1]);
   const a3 = useAgent(agentIds[2]);
   const a4 = useAgent(agentIds[3]);
   const a5 = useAgent(agentIds[4]);
-
   const results = [a1, a2, a3, a4, a5];
   return agentIds.map((id, i) => {
     const data = results[i]?.agent;
@@ -60,7 +57,7 @@ function useAllAgents(agentIds) {
 }
 
 export default function Dashboard() {
-  const { isConnected } = useAccount();
+  const { address, isConnected } = useAccount();
   const { open } = useAppKit();
   const { balance, symbol } = useWalletBalance();
   const { total: totalAgents } = useTotalAgents();
@@ -77,9 +74,23 @@ export default function Dashboard() {
   const [agentSteps, setAgentSteps] = useState([]);
   const [strategy, setStrategy] = useState(null);
   const [totalDecisions, setTotalDecisions] = useState(0);
+  const [telegramChatId, setTelegramChatId] = useState('');
 
   const agentIds = Array.from({ length: Math.min(Number(totalAgents || 0), 5) }, (_, i) => i + 1);
   const allAgents = useAllAgents(agentIds);
+
+  // Load telegram chat ID from backend
+  useEffect(() => {
+    if (!address) return;
+    fetch('http://localhost:3001/api/users/' + address)
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && d.data?.telegram_chat_id) {
+          setTelegramChatId(d.data.telegram_chat_id);
+        }
+      })
+      .catch(() => {});
+  }, [address]);
 
   const addToFeed = useCallback((title, tx = null) => {
     const hash = tx ? tx.slice(0, 10) + '...' : '0x' + Math.random().toString(16).substr(2, 8) + '...';
@@ -110,10 +121,10 @@ export default function Dashboard() {
     try {
       const result = await runMasterMind(goal, {
         onUpdate: updateStep,
-        userAgents: allAgents, // real agents from contract with roles
-        
+        userAgents: allAgents,
+        telegramChatId, // pass telegram chat ID
+
         onAutoDeployAgents: async () => {
-          // Auto deploy 3 agents if none exist
           addToFeed('Auto-deploying MasterMind agent...');
           await deployAgent('MasterMind', 'COORDINATOR');
           addToFeed('Auto-deploying DataAgent...');
@@ -166,29 +177,17 @@ export default function Dashboard() {
       sub: isConnected ? '● Live on Mantle' : 'Connect wallet',
       icon: '💼'
     },
-    {
-      label: 'Active Agents',
-      value: String(totalAgents || 0),
-      sub: 'On-chain ERC-8004',
-      icon: '🤖'
-    },
+    { label: 'Active Agents', value: String(totalAgents || 0), sub: 'On-chain ERC-8004', icon: '🤖' },
     {
       label: 'Vault Balance',
       value: isConnected ? `${vaultBalance} MNT` : '—',
       sub: isConnected ? 'In MantleMind Vault' : 'Connect wallet',
       icon: '◈'
     },
-    {
-      label: 'Total Decisions',
-      value: String(totalDecisions),
-      sub: 'On-chain recorded',
-      icon: '⚡'
-    },
+    { label: 'Total Decisions', value: String(totalDecisions), sub: 'On-chain recorded', icon: '⚡' },
   ];
 
   const suggestions = ['Maximize yield on my USDY', 'Auto-rebalance weekly', 'Hedge mETH position'];
-
-  // Show agent role info
   const agentRoles = findAgentsByRole(allAgents);
 
   return (
@@ -209,6 +208,15 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* Telegram connected indicator */}
+      {telegramChatId && (
+        <div style={{ marginBottom:'12px', padding:'8px 12px', background:'rgba(255,255,255,0.03)', borderRadius:'8px', border:'0.5px solid rgba(255,255,255,0.1)', display:'flex', alignItems:'center', gap:'8px' }}>
+          <span style={{ fontSize:'14px' }}>📱</span>
+          <span style={{ fontSize:'11px', color:'#888' }}>Telegram notifications active — agents will notify you on every action</span>
+          <span className="badge badge-white" style={{ marginLeft:'auto' }}>CONNECTED</span>
+        </div>
+      )}
 
       {/* Metrics */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'12px', marginBottom:'20px' }}>
@@ -234,7 +242,6 @@ export default function Dashboard() {
           <div className="card">
             <div className="card-label">Your Goal — MasterMind AI</div>
 
-            {/* Agent roles info */}
             {agentRoles && (
               <div style={{ marginBottom:'10px', padding:'8px 10px', background:'rgba(255,255,255,0.03)', borderRadius:'6px', display:'flex', gap:'8px', flexWrap:'wrap' }}>
                 <span style={{ fontSize:'10px', color:'#555' }}>Using:</span>
@@ -309,6 +316,7 @@ export default function Dashboard() {
                   <span className="badge badge-outline">Risk: {strategy.riskLevel}</span>
                   <span className="badge badge-outline">{strategy.timeframe}mo</span>
                   <span className="badge badge-white">ON-CHAIN ✓</span>
+                  {telegramChatId && <span className="badge badge-outline">📱 Notified</span>}
                 </div>
               </div>
             )}
@@ -322,8 +330,7 @@ export default function Dashboard() {
             </div>
             {agentIds.length === 0 ? (
               <div style={{ textAlign:'center', padding:'20px', color:'#444', fontSize:'12px' }}>
-                No agents deployed yet —{' '}
-                <Link to="/agents" style={{ color:'#888' }}>Deploy one</Link>
+                No agents deployed yet — <Link to="/agents" style={{ color:'#888' }}>Deploy one</Link>
               </div>
             ) : (
               agentIds.map(id => <AgentRow key={id} agentId={id} />)
@@ -415,7 +422,6 @@ function AgentRepCard({ agentId }) {
   const rep = Number(agent.reputation);
   const decisions = Number(agent.totalDecisions);
   const accuracy = decisions > 0 ? Math.round((Number(agent.correctDecisions) / decisions) * 100) : 0;
-
   return (
     <div className="rep-card">
       <div className="rep-avatar">🤖</div>

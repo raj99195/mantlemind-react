@@ -5,6 +5,18 @@ const groq = new Groq({
   dangerouslyAllowBrowser: true
 });
 
+// ===== TELEGRAM NOTIFY =====
+async function notify(chatId, message) {
+  if (!chatId) return;
+  try {
+    await fetch('http://localhost:3001/api/telegram/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chatId, message })
+    });
+  } catch {}
+}
+
 // ===== FETCH REAL BYREAL DATA =====
 export async function fetchRealPools() {
   try {
@@ -19,9 +31,7 @@ export async function fetchRealPools() {
         poolId: p.id,
       }));
     }
-  } catch (err) {
-    console.log('Backend not available, using fallback data');
-  }
+  } catch { console.log('Backend not available, using fallback data'); }
   return null;
 }
 
@@ -35,31 +45,28 @@ export async function fetchByrealOverview() {
 }
 
 // ===== FIND AGENTS BY ROLE =====
-// agents = array of { id, name, role, isActive } from contract
 export function findAgentsByRole(agents) {
   if (!agents || agents.length === 0) return null;
-
   const active = agents.filter(a => a.isActive);
   if (active.length === 0) return null;
 
-  // Find by role
-  const master = active.find(a => 
-    a.role?.toUpperCase().includes('COORDINATOR') || 
+  const master = active.find(a =>
+    a.role?.toUpperCase().includes('COORDINATOR') ||
     a.role?.toUpperCase().includes('MASTER')
   ) || active[0];
 
-  const data = active.find(a => 
-    a.role?.toUpperCase().includes('ANALYZER') || 
+  const data = active.find(a =>
+    a.role?.toUpperCase().includes('ANALYZER') ||
     a.role?.toUpperCase().includes('DATA')
   ) || active[1] || active[0];
 
-  const trade = active.find(a => 
-    a.role?.toUpperCase().includes('EXECUTOR') || 
+  const trade = active.find(a =>
+    a.role?.toUpperCase().includes('EXECUTOR') ||
     a.role?.toUpperCase().includes('TRADE')
   ) || active[2] || active[1] || active[0];
 
-  const risk = active.find(a => 
-    a.role?.toUpperCase().includes('MONITOR') || 
+  const risk = active.find(a =>
+    a.role?.toUpperCase().includes('MONITOR') ||
     a.role?.toUpperCase().includes('RISK')
   ) || null;
 
@@ -164,10 +171,9 @@ Respond ONLY with valid JSON.`
 }
 
 // ===== MASTER ORCHESTRATOR =====
-// callbacks = { onUpdate, onChainHire, onChainPay, onChainRecord, onVaultDeposit, onAutoDeployAgents, userAgents }
-// userAgents = [{ id, name, role, isActive }] — fetched from contract
+// callbacks = { onUpdate, onChainHire, onChainPay, onChainRecord, onVaultDeposit, onAutoDeployAgents, userAgents, telegramChatId }
 export async function runMasterMind(userGoal, callbacks) {
-  const { onUpdate, onChainHire, onChainPay, onChainRecord, onVaultDeposit, onAutoDeployAgents, userAgents } = callbacks;
+  const { onUpdate, onChainHire, onChainPay, onChainRecord, onVaultDeposit, onAutoDeployAgents, userAgents, telegramChatId } = callbacks;
   const steps = [];
   const txHashes = [];
 
@@ -175,21 +181,15 @@ export async function runMasterMind(userGoal, callbacks) {
   let agentRoles = findAgentsByRole(userAgents || []);
 
   if (!agentRoles) {
-    // No agents — auto deploy 3
     onUpdate({ step: 'MasterMind', action: 'No agents found — Auto-deploying 3 agents...', status: 'thinking', tx: null });
     try {
       const deployedIds = await onAutoDeployAgents();
       agentRoles = {
-        masterId: deployedIds[0],
-        dataId: deployedIds[1],
-        tradeId: deployedIds[2],
-        masterName: 'MasterMind',
-        dataName: 'DataAgent',
-        tradeName: 'TradeAgent',
+        masterId: deployedIds[0], dataId: deployedIds[1], tradeId: deployedIds[2],
+        masterName: 'MasterMind', dataName: 'DataAgent', tradeName: 'TradeAgent',
       };
       onUpdate({ step: 'MasterMind', action: '3 agents deployed on-chain!', status: 'done', tx: null });
     } catch {
-      // Fallback to IDs 1,2,3 if auto-deploy fails
       agentRoles = { masterId: 1, dataId: 2, tradeId: 3, masterName: 'Agent1', dataName: 'Agent2', tradeName: 'Agent3' };
       onUpdate({ step: 'MasterMind', action: 'Using existing agents...', status: 'done', tx: null });
     }
@@ -197,15 +197,20 @@ export async function runMasterMind(userGoal, callbacks) {
 
   const { masterId, dataId, tradeId, masterName, dataName, tradeName } = agentRoles;
 
+  // Notify start
+  await notify(telegramChatId,
+    `🤖 <b>MantleMind Activated!</b>\n\nGoal: <i>${userGoal.slice(0, 100)}</i>\n\nAgents:\n• ${masterName} → Master\n• ${dataName} → Data\n• ${tradeName} → Trade\n\n⏳ Executing autonomous loop...`
+  );
+
   // ===== STEP 1 — MasterMind interprets goal =====
   onUpdate({ step: masterName, action: 'Interpreting your goal...', status: 'thinking', tx: null });
   const strategy = await interpretGoal(userGoal);
   steps.push({ agent: masterName, action: 'Goal interpreted', data: strategy });
-  onUpdate({ 
-    step: masterName, 
-    action: `Strategy: ${strategy.recommendedAction}`, 
-    status: 'done', tx: null 
-  });
+  onUpdate({ step: masterName, action: `Strategy: ${strategy.recommendedAction}`, status: 'done', tx: null });
+
+  await notify(telegramChatId,
+    `🧠 <b>${masterName}</b> — Strategy Ready\n\nIntent: ${strategy.intent}\nRisk: ${strategy.riskLevel}\nTimeframe: ${strategy.timeframe} months\n\n📋 ${strategy.recommendedAction}`
+  );
 
   // ===== STEP 2 — DataAgent hired on-chain =====
   onUpdate({ step: dataName, action: 'Being hired...', status: 'thinking', tx: null });
@@ -213,6 +218,7 @@ export async function runMasterMind(userGoal, callbacks) {
     const hireTx = await onChainHire(masterId, dataId, 0.001);
     txHashes.push(hireTx);
     onUpdate({ step: dataName, action: 'Hired on-chain — Scanning Byreal pools...', status: 'thinking', tx: hireTx });
+    await notify(telegramChatId, `📊 <b>${dataName}</b> hired on-chain\nTx: <code>${hireTx.slice(0, 20)}...</code>\n\nScanning Byreal pools...`);
   } catch (err) {
     console.log('DataAgent hire failed:', err.message?.slice(0, 50));
     onUpdate({ step: dataName, action: 'Scanning Byreal pools...', status: 'thinking', tx: null });
@@ -231,11 +237,14 @@ export async function runMasterMind(userGoal, callbacks) {
   try {
     const recordTx = await onChainRecord(dataId, `Pool scan: ${poolsToAnalyze[0]?.pair} ${poolsToAnalyze[0]?.apr} APR`, true);
     txHashes.push(recordTx);
-    onUpdate({ 
-      step: dataName, 
-      action: `${realPools ? 'Live' : 'Cached'} pools — ${poolsToAnalyze[0]?.pair} best at ${poolsToAnalyze[0]?.apr}`, 
-      status: 'done', tx: recordTx 
+    onUpdate({
+      step: dataName,
+      action: `${realPools ? 'Live' : 'Cached'} pools — ${poolsToAnalyze[0]?.pair} best at ${poolsToAnalyze[0]?.apr}`,
+      status: 'done', tx: recordTx
     });
+    await notify(telegramChatId,
+      `📊 <b>${dataName}</b> — Scan Complete\n\nBest Pool: ${poolsToAnalyze[0]?.pair}\nAPR: ${poolsToAnalyze[0]?.apr}\nTVL: ${poolsToAnalyze[0]?.tvl}\n\n💡 ${insights.slice(0, 150)}`
+    );
   } catch {
     onUpdate({ step: dataName, action: insights.slice(0, 80), status: 'done', tx: null });
   }
@@ -244,13 +253,19 @@ export async function runMasterMind(userGoal, callbacks) {
   onUpdate({ step: 'RiskAgent', action: 'Assessing risk...', status: 'thinking', tx: null });
   const risk = await assessRisk(strategy, strategy.riskLevel);
   steps.push({ agent: 'RiskAgent', action: 'Risk assessed', data: risk });
-  onUpdate({ 
-    step: 'RiskAgent', 
-    action: `Risk: ${risk.riskScore}/10 — ${risk.approved ? 'APPROVED' : 'REJECTED'}`, 
-    status: risk.approved ? 'done' : 'error', tx: null 
+
+  onUpdate({
+    step: 'RiskAgent',
+    action: `Risk: ${risk.riskScore}/10 — ${risk.approved ? 'APPROVED' : 'REJECTED'}`,
+    status: risk.approved ? 'done' : 'error', tx: null
   });
 
+  await notify(telegramChatId,
+    `🛡️ <b>RiskAgent</b> — Assessment\n\nScore: ${risk.riskScore}/10\nStatus: ${risk.approved ? '✅ APPROVED' : '❌ REJECTED'}\n${risk.warnings?.length ? '\n⚠️ ' + risk.warnings.join('\n⚠️ ') : ''}`
+  );
+
   if (!risk.approved) {
+    await notify(telegramChatId, `❌ <b>Strategy Rejected!</b>\n\nRisk too high. No trades executed.`);
     return { strategy, risk, steps, insights, txHashes, aborted: true };
   }
 
@@ -260,6 +275,7 @@ export async function runMasterMind(userGoal, callbacks) {
     const hireTx = await onChainHire(masterId, tradeId, 0.002);
     txHashes.push(hireTx);
     onUpdate({ step: tradeName, action: 'Hired — Executing strategy...', status: 'thinking', tx: hireTx });
+    await notify(telegramChatId, `⚡ <b>${tradeName}</b> hired on-chain\nTx: <code>${hireTx.slice(0, 20)}...</code>\n\nExecuting strategy...`);
   } catch {
     onUpdate({ step: tradeName, action: 'Executing strategy...', status: 'thinking', tx: null });
   }
@@ -293,6 +309,9 @@ export async function runMasterMind(userGoal, callbacks) {
     const recordTx = await onChainRecord(tradeId, `Strategy executed: ${strategy.recommendedAction}`, true);
     txHashes.push(recordTx);
     onUpdate({ step: tradeName, action: `Strategy executed${tradeResult ? ' + Byreal' : ''}`, status: 'done', tx: recordTx });
+    await notify(telegramChatId,
+      `⚡ <b>${tradeName}</b> — Strategy Executed!\n\n✅ ${strategy.recommendedAction}\n${tradeResult ? '🔗 Byreal integration active' : ''}\nTx: <code>${recordTx.slice(0, 20)}...</code>`
+    );
   } catch {
     onUpdate({ step: tradeName, action: `Strategy ready: ${strategy.recommendedAction}`, status: 'done', tx: vaultTx });
   }
@@ -316,11 +335,16 @@ export async function runMasterMind(userGoal, callbacks) {
     }
   }
 
-  onUpdate({ 
-    step: masterName, 
-    action: 'All agents paid — Loop complete! 🎉', 
-    status: 'done', tx: lastPayTx 
+  onUpdate({
+    step: masterName,
+    action: 'All agents paid — Loop complete! 🎉',
+    status: 'done', tx: lastPayTx
   });
+
+  // Final Telegram summary
+  await notify(telegramChatId,
+    `🎉 <b>MantleMind Loop Complete!</b>\n\n📊 Summary:\n• Intent: ${strategy.intent}\n• Risk: ${strategy.riskLevel} (${risk.riskScore}/10)\n• Best Pool: ${poolsToAnalyze[0]?.pair} @ ${poolsToAnalyze[0]?.apr}\n• Transactions: ${txHashes.length}\n• Agents paid: ${agentPayments.length}\n\n✅ All decisions recorded on Mantle blockchain\n\n🤖 <i>MantleMind — Autonomous AI Agent Economy</i>`
+  );
 
   return { strategy, risk, steps, insights, txHashes, tradeResult, aborted: false };
 }
