@@ -16,8 +16,6 @@
     "@supabase/supabase-js": "^2.105.4",
     "@tanstack/react-query": "^5.100.9",
     "@walletconnect/ethereum-provider": "^2.23.9",
-    "byreal-cli": "latest",
-    "byreal-perps-cli": "latest",
     "child-process-promise": "^2.2.1",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
