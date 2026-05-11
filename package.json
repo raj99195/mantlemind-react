@@ -8,7 +8,8 @@
     "build": "vite build",
     "start": "node server.cjs",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postinstall": "npm install -g @byreal-io/byreal-cli@0.3.4 --legacy-peer-deps || true && npm install -g @byreal-io/byreal-perps-cli@0.3.7 --legacy-peer-deps || true"
   },
   "dependencies": {
     "@reown/appkit": "^1.8.19",
