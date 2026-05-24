@@ -7,6 +7,7 @@ import Agents from './pages/Agents';
 import AgentDetail from './pages/AgentDetail';
 import Portfolio from './pages/Portfolio';
 import { Transactions, Onboarding, Settings } from './pages/OtherPages';
+import { Leaderboard, Marketplace } from './pages/LeaderboardMarketplace';
 import './index.css';
 
 export default function App() {
@@ -20,10 +21,12 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/agents" element={<Agents />} />
-            <Route path="/agent-detail" element={<AgentDetail />} />
+            <Route path="/agents/:id" element={<AgentDetail />} />
             <Route path="/portfolio" element={<Portfolio />} />
             <Route path="/transactions" element={<Transactions />} />
             <Route path="/onboarding" element={<Onboarding />} />
+            <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="/marketplace" element={<Marketplace />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </div>

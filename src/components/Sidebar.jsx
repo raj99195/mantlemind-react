@@ -5,6 +5,8 @@ const links = [
   { to: '/agents', icon: '◈', label: 'Agents' },
   { to: '/portfolio', icon: '▦', label: 'Portfolio' },
   { to: '/transactions', icon: '⧗', label: 'History' },
+  { to: '/leaderboard', icon: '🏆', label: 'Leaderboard' },
+  { to: '/marketplace', icon: '🏪', label: 'Marketplace' },
   { to: '/settings', icon: '⚙', label: 'Settings' },
 ];
 

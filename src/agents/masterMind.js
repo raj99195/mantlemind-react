@@ -5,11 +5,13 @@ const groq = new Groq({
   dangerouslyAllowBrowser: true
 });
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
 // ===== TELEGRAM NOTIFY =====
 async function notify(chatId, message) {
   if (!chatId) return;
   try {
-    await fetch('http://localhost:3001/api/telegram/send', {
+    await fetch(`${API_BASE}/api/telegram/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chatId, message })
@@ -20,7 +22,7 @@ async function notify(chatId, message) {
 // ===== FETCH REAL BYREAL DATA =====
 export async function fetchRealPools() {
   try {
-    const res = await fetch('http://localhost:3001/api/byreal/pools?limit=5&sort=apr24h');
+    const res = await fetch(`${API_BASE}/api/byreal/pools?limit=5&sort=apr24h`);
     const json = await res.json();
     if (json.success && json.data) {
       return json.data.map(p => ({
@@ -37,7 +39,7 @@ export async function fetchRealPools() {
 
 export async function fetchByrealOverview() {
   try {
-    const res = await fetch('http://localhost:3001/api/byreal/overview');
+    const res = await fetch(`${API_BASE}/api/byreal/overview`);
     const json = await res.json();
     if (json.success) return json.data.data;
   } catch {}
@@ -284,7 +286,7 @@ export async function runMasterMind(userGoal, callbacks) {
   try {
     const bestPool = poolsToAnalyze[0];
     if (strategy.intent === 'yield' && bestPool?.poolId) {
-      const lpRes = await fetch('http://localhost:3001/api/byreal/lp/preview', {
+      const lpRes = await fetch(`${API_BASE}/api/byreal/lp/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ poolId: bestPool.poolId, priceLower: 0.95, priceUpper: 1.05, amount: 1 })
@@ -292,7 +294,7 @@ export async function runMasterMind(userGoal, callbacks) {
       const lpData = await lpRes.json();
       tradeResult = lpData.success ? lpData.data : null;
     } else if (strategy.intent === 'trade') {
-      const perpsRes = await fetch('http://localhost:3001/api/byreal/perps/scan?risk=conservative');
+      const perpsRes = await fetch(`${API_BASE}/api/byreal/perps/scan?risk=conservative`);
       const perpsData = await perpsRes.json();
       tradeResult = perpsData.success ? perpsData.data : null;
     }

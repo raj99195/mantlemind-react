@@ -1,7 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAccount } from 'wagmi';
 import { useAppKit } from '@reown/appkit/react';
 import { useDeployAgent, useTotalAgents, useAgent, useHireAgent, useFireAgent, usePayAgent } from '../hooks/useContracts';
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const EXPLORER_URL = import.meta.env.VITE_EXPLORER_URL || 'https://explorer.sepolia.mantle.xyz';
 
 function AgentCard({ agentId, allAgentIds }) {
   const { agent, isLoading } = useAgent(agentId);
@@ -64,7 +68,9 @@ function AgentCard({ agentId, allAgentIds }) {
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '15px', fontWeight: 600 }}>{agent.name}</span>
+            <Link to={`/agents/${agentId}`} style={{ textDecoration:'none', color:'inherit' }}>
+              <span style={{ fontSize: '15px', fontWeight: 600, cursor:'pointer' }}>{agent.name} ↗</span>
+            </Link>
             <span className="badge badge-outline">{agent.role}</span>
             <span className={`badge ${agent.isActive ? 'badge-white' : 'badge-dim'}`}>
               {agent.isActive ? 'ACTIVE' : 'INACTIVE'}
@@ -185,7 +191,7 @@ function AgentCard({ agentId, allAgentIds }) {
             {txHash.slice(0, 20)}...
           </div>
           <a
-            href={'https://explorer.sepolia.mantle.xyz/tx/' + txHash}
+            href={`${import.meta.env.VITE_EXPLORER_URL || 'https://explorer.sepolia.mantle.xyz'}/tx/${txHash}`}
             target="_blank"
             rel="noreferrer"
             style={{ fontSize: '10px', color: '#666' }}
@@ -215,6 +221,32 @@ export default function Agents() {
   const [agentRole, setAgentRole] = useState('ANALYZER');
   const [txHash, setTxHash] = useState('');
   const [error, setError] = useState('');
+  const [liveStats, setLiveStats] = useState({ totalDecisions: 0, totalEarned: 0, cycles: 0 });
+  const [leaderboard, setLeaderboard] = useState([]);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const [statusRes, pnlRes] = await Promise.all([
+          fetch(`${API_BASE}/api/loop/status`).then(r => r.json()),
+          fetch(`${API_BASE}/api/economy/pnl`).then(r => r.json()),
+        ]);
+        if (statusRes.success) {
+          setLiveStats(prev => ({
+            ...prev,
+            totalDecisions: statusRes.state?.totalDecisions || 0,
+            cycles: statusRes.state?.cycleCount || 0,
+          }));
+        }
+        if (pnlRes.success && pnlRes.data) {
+          const earned = pnlRes.data.reduce((s, a) => s + (a.total_earned || 0), 0);
+          setLiveStats(prev => ({ ...prev, totalEarned: earned }));
+          setLeaderboard(pnlRes.data.slice(0, 5));
+        }
+      } catch {}
+    };
+    load();
+  }, []);
 
   const roles = ['COORDINATOR', 'ANALYZER', 'EXECUTOR', 'MONITOR'];
 
@@ -302,7 +334,7 @@ export default function Agents() {
                 Tx: {txHash}
               </div>
               <a
-                href={'https://explorer.sepolia.mantle.xyz/tx/' + txHash}
+                href={`${import.meta.env.VITE_EXPLORER_URL || 'https://explorer.sepolia.mantle.xyz'}/tx/${txHash}`}
                 target="_blank"
                 rel="noreferrer"
                 style={{ fontSize: '11px', color: '#888' }}
@@ -324,9 +356,9 @@ export default function Agents() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '12px', marginBottom: '20px' }}>
         {[
           { label: 'Total Agents', val: String(total || 0), sub: 'on-chain' },
-          { label: 'Total Decisions', val: '255', sub: 'across all agents' },
-          { label: 'MNT Paid Out', val: '0.047', sub: 'total agent fees' },
-          { label: 'Avg Accuracy', val: '96%', sub: 'excellent' },
+          { label: 'Total Decisions', val: String(liveStats.totalDecisions), sub: 'across all agents' },
+          { label: 'MNT Paid Out', val: liveStats.totalEarned.toFixed(4), sub: 'total agent fees' },
+          { label: 'Loop Cycles', val: String(liveStats.cycles), sub: 'autonomous cycles' },
         ].map((s, i) => (
           <div key={i} className="card" style={{ textAlign: 'center' }}>
             <div className="card-label">{s.label}</div>
@@ -335,6 +367,28 @@ export default function Agents() {
           </div>
         ))}
       </div>
+
+      {/* Leaderboard */}
+      {leaderboard.length > 0 && (
+        <div className="card" style={{ marginBottom: '20px' }}>
+          <div className="section-header" style={{ marginBottom:'12px' }}>
+            <div className="card-label" style={{ margin:0 }}>Agent Leaderboard</div>
+            <span style={{ fontSize:'10px', color:'#555' }}>P&L · Economy</span>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:'8px' }}>
+            {leaderboard.map((a, i) => (
+              <div key={i} style={{ textAlign:'center', padding:'10px 8px', background:'rgba(255,255,255,0.02)', borderRadius:'8px', border:'0.5px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ fontSize:'18px', marginBottom:'4px' }}>{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '🤖'}</div>
+                <div style={{ fontSize:'10px', color:'#888', fontFamily:'JetBrains Mono' }}>Agent #{a.agent_id}</div>
+                <div style={{ fontSize:'13px', fontWeight:600, color: (a.net_pnl||0) >= 0 ? '#4ade80' : '#ff4444', marginTop:'4px' }}>
+                  {(a.net_pnl||0) >= 0 ? '+' : ''}{(a.net_pnl||0).toFixed(4)}
+                </div>
+                <div style={{ fontSize:'9px', color:'#444', marginTop:'2px' }}>Net MNT</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Real Agent List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

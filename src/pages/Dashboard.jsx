@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useAccount } from 'wagmi';
 import { useAppKit } from '@reown/appkit/react';
@@ -8,6 +8,147 @@ import {
   useHireAgent, usePayAgent, useRecordDecision, useDeposit, useDeployAgent
 } from '../hooks/useContracts';
 import { runMasterMind, findAgentsByRole } from '../agents/masterMind';
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const WS_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3001')
+  .replace('https://', 'wss://')
+  .replace('http://', 'ws://');
+
+// ── useLoopControl hook ──────────────────────────────────────
+function useLoopControl() {
+  const [loopState, setLoopState] = useState(null);
+  const [loopActivity, setLoopActivity] = useState([]);
+  const wsRef = useRef(null);
+
+  useEffect(() => {
+    let ws;
+    let reconnectTimer;
+    const connect = () => {
+      try {
+        ws = new WebSocket(WS_URL);
+        wsRef.current = ws;
+        ws.onmessage = (e) => {
+          try {
+            const msg = JSON.parse(e.data);
+            if (msg.type === 'loop_state') setLoopState(msg.data);
+            if (msg.type === 'activity') setLoopActivity(prev => [msg.data, ...prev].slice(0, 20));
+            if (msg.type === 'loop_tick') setLoopActivity(prev => [{
+              agentName: 'MasterMind', action: `Cycle #${msg.data.cycle} started`,
+              status: 'running', time: msg.data.time,
+            }, ...prev].slice(0, 20));
+          } catch {}
+        };
+        ws.onclose = () => { reconnectTimer = setTimeout(connect, 3000); };
+      } catch {}
+    };
+    connect();
+    fetch(`${API_BASE}/api/loop/status`).then(r => r.json()).then(d => { if (d.success) setLoopState(d.state); }).catch(() => {});
+    fetch(`${API_BASE}/api/loop/activity`).then(r => r.json()).then(d => { if (d.success) setLoopActivity(d.data); }).catch(() => {});
+    return () => { clearTimeout(reconnectTimer); if (ws) ws.close(); };
+  }, []);
+
+  const startLoop = async (goal) => {
+    const d = await fetch(`${API_BASE}/api/loop/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ goal, intervalMinutes: 10 }) }).then(r => r.json());
+    if (d.success) setLoopState(d.state);
+  };
+  const stopLoop = async () => {
+    await fetch(`${API_BASE}/api/loop/stop`, { method: 'POST' });
+    setLoopState(prev => ({ ...prev, running: false }));
+  };
+  const pauseLoop = async () => {
+    const d = await fetch(`${API_BASE}/api/loop/pause`, { method: 'POST' }).then(r => r.json());
+    if (d.success) setLoopState(prev => ({ ...prev, paused: d.paused }));
+  };
+  const emergencyStop = async () => {
+    if (!window.confirm('Emergency stop — sab agents pause honge. Continue?')) return;
+    await fetch(`${API_BASE}/api/loop/emergency-stop`, { method: 'POST' });
+    setLoopState(prev => ({ ...prev, running: false, emergencyStop: true }));
+  };
+  const manualTick = async () => { await fetch(`${API_BASE}/api/loop/tick`, { method: 'POST' }); };
+
+  return { loopState, loopActivity, startLoop, stopLoop, pauseLoop, emergencyStop, manualTick };
+}
+
+// ── LoopControlPanel component ───────────────────────────────
+function LoopControlPanel({ goal, loopState, loopActivity, onStart, onStop, onPause, onEmergency, onTick }) {
+  const isRunning = loopState?.running && !loopState?.paused;
+  const isPaused  = loopState?.running && loopState?.paused;
+  const statusColor = loopState?.emergencyStop ? '#ff4444' : isRunning ? '#4ade80' : isPaused ? '#facc15' : '#555';
+  const statusText  = loopState?.emergencyStop ? 'EMERGENCY STOP' : isRunning ? 'RUNNING' : isPaused ? 'PAUSED' : 'STOPPED';
+  const nextRunIn   = loopState?.nextRun ? Math.max(0, Math.round((new Date(loopState.nextRun) - Date.now()) / 60000)) : null;
+
+  return (
+    <div className="card" style={{ marginBottom: '14px' }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'12px' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+          <div className="card-label" style={{ margin:0 }}>Autonomous Loop</div>
+          <div style={{ display:'flex', alignItems:'center', gap:'4px' }}>
+            <div style={{ width:'6px', height:'6px', borderRadius:'50%', background: statusColor, animation: isRunning ? 'pulseDot 1.5s infinite' : 'none' }} />
+            <span style={{ fontSize:'10px', color: statusColor, fontFamily:'JetBrains Mono', letterSpacing:'0.06em' }}>{statusText}</span>
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:'6px' }}>
+          {(!loopState?.running || loopState?.emergencyStop) && (
+            <button className="btn btn-white" style={{ fontSize:'11px', padding:'5px 12px' }} onClick={() => onStart(goal)}>▶ Start</button>
+          )}
+          {isPaused && (
+            <button className="btn btn-white" style={{ fontSize:'11px', padding:'5px 12px' }} onClick={onPause}>▶ Resume</button>
+          )}
+          {isRunning && (
+            <>
+              <button className="btn btn-ghost" style={{ fontSize:'11px', padding:'5px 12px' }} onClick={onPause}>⏸ Pause</button>
+              <button className="btn btn-ghost" style={{ fontSize:'11px', padding:'5px 12px' }} onClick={onTick} title="Run cycle now">⚡ Now</button>
+            </>
+          )}
+          {(isRunning || isPaused) && (
+            <button className="btn btn-ghost" style={{ fontSize:'11px', padding:'5px 12px' }} onClick={onStop}>■ Stop</button>
+          )}
+          <button className="btn btn-ghost" style={{ fontSize:'11px', padding:'5px 12px', color:'#ff6666', borderColor:'rgba(255,100,100,0.3)' }} onClick={onEmergency}>🚨</button>
+        </div>
+      </div>
+
+      {loopState && (
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'8px', marginBottom:'12px' }}>
+          {[
+            { label:'Cycles', val: loopState.cycleCount || 0 },
+            { label:'Decisions', val: loopState.totalDecisions || 0 },
+            { label:'Fired', val: loopState.agentsFired || 0 },
+            { label:'Next run', val: nextRunIn !== null && isRunning ? `${nextRunIn}m` : '—' },
+          ].map(({ label, val }) => (
+            <div key={label} style={{ textAlign:'center', padding:'8px', background:'rgba(255,255,255,0.02)', borderRadius:'6px' }}>
+              <div style={{ fontSize:'10px', color:'#444', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:'2px' }}>{label}</div>
+              <div style={{ fontSize:'16px', fontWeight:600, color:'#fff' }}>{val}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {loopActivity.length > 0 && (
+        <div>
+          <div style={{ fontSize:'10px', color:'#444', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:'6px' }}>Live Activity</div>
+          <div style={{ maxHeight:'130px', overflowY:'auto' }}>
+            {loopActivity.slice(0, 8).map((a, i) => (
+              <div key={i} style={{ display:'flex', alignItems:'center', gap:'8px', padding:'3px 0', borderBottom:'0.5px solid rgba(255,255,255,0.04)' }}>
+                <div style={{ width:'5px', height:'5px', borderRadius:'50%', flexShrink:0,
+                  background: a.status==='done' ? '#4ade80' : a.status==='error' ? '#ff4444' : '#facc15',
+                  animation: a.status==='running' ? 'pulseDot 1s infinite' : 'none'
+                }} />
+                <span style={{ fontSize:'10px', color:'#555', width:'80px', flexShrink:0 }}>{a.agentName}</span>
+                <span style={{ fontSize:'11px', color: a.status==='error' ? '#ff6666' : '#888', flex:1 }}>{a.action}</span>
+                <span style={{ fontSize:'10px', color:'#333', flexShrink:0 }}>
+                  {new Date(a.time).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' })}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!loopState && <div style={{ textAlign:'center', padding:'10px', color:'#444', fontSize:'12px' }}>Connecting to backend...</div>}
+    </div>
+  );
+}
+
 
 let feedCounter = 6;
 
@@ -69,12 +210,58 @@ export default function Dashboard() {
   const { deployAgent } = useDeployAgent();
 
   const [feed, setFeed] = useState(FEED_ITEMS);
-  const [goal, setGoal] = useState('Mere paas 500 USDY hai. 3 mahine mein maximum yield chahiye, risk low rakhna.');
+  const [goal, setGoal] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const [agentSteps, setAgentSteps] = useState([]);
   const [strategy, setStrategy] = useState(null);
   const [totalDecisions, setTotalDecisions] = useState(0);
   const [telegramChatId, setTelegramChatId] = useState('');
+  const { loopState, loopActivity, startLoop, stopLoop, pauseLoop, emergencyStop, manualTick } = useLoopControl();
+
+  // Day 7-11: Intelligence + Economy state
+  const [goalProgress, setGoalProgress] = useState(null);
+  const [narrative, setNarrative] = useState(null);
+  const [marketData, setMarketData] = useState(null);
+  const [anomalies, setAnomalies] = useState([]);
+  const [pnlData, setPnlData] = useState([]);
+
+  // Fetch intelligence + economy data
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [gpRes, narRes, mktRes, pnlRes] = await Promise.all([
+          fetch(`${API_BASE}/api/loop/goal-progress`).then(r => r.json()),
+          fetch(`${API_BASE}/api/loop/narrative`).then(r => r.json()),
+          fetch(`${API_BASE}/api/loop/market`).then(r => r.json()),
+          fetch(`${API_BASE}/api/economy/pnl`).then(r => r.json()),
+        ]);
+        if (gpRes.success) setGoalProgress(gpRes.current ?? gpRes.data?.progress_pct ?? 0);
+        if (narRes.success && narRes.data) setNarrative(narRes.data);
+        if (mktRes.success) {
+          setMarketData(mktRes.data);
+          // Extract anomalies from pools
+          const pools = mktRes.data?.pools || [];
+          const found = [];
+          if (pools[0] && parseFloat(pools[0].apr) > 500)
+            found.push({ type: 'EXTREME_APR', msg: `${pools[0].pair} @ ${pools[0].apr}% APR — possible rug risk` });
+          if (mktRes.data?.market?.mntChange24h < -5)
+            found.push({ type: 'MARKET_CRASH', msg: `MNT down ${Math.abs(mktRes.data.market.mntChange24h).toFixed(1)}% today` });
+          setAnomalies(found);
+        }
+        if (pnlRes.success) setPnlData(pnlRes.data || []);
+      } catch {}
+    };
+    fetchData();
+    const t = setInterval(fetchData, 60000); // refresh every 60s
+    return () => clearInterval(t);
+  }, []);
+
+  // Listen to WebSocket for real-time updates
+  useEffect(() => {
+    if (!loopState) return;
+    if (loopState.goalProgress !== undefined) setGoalProgress(loopState.goalProgress);
+    if (loopState.lastNarrative) setNarrative(loopState.lastNarrative);
+  }, [loopState]);
 
   const agentIds = Array.from({ length: Math.min(Number(totalAgents || 0), 5) }, (_, i) => i + 1);
   const allAgents = useAllAgents(agentIds);
@@ -82,7 +269,7 @@ export default function Dashboard() {
   // Load telegram chat ID from backend
   useEffect(() => {
     if (!address) return;
-    fetch('http://localhost:3001/api/users/' + address)
+    fetch(`${API_BASE}/api/users/` + address)
       .then(r => r.json())
       .then(d => {
         if (d.success && d.data?.telegram_chat_id) {
@@ -170,21 +357,28 @@ export default function Dashboard() {
     }
   };
 
+  const mntPrice = marketData?.market?.mntPrice || 0;
+  const mntChange = marketData?.market?.mntChange24h || 0;
   const METRICS = [
     {
       label: 'Total Portfolio Value',
       value: isConnected ? `${parseFloat(balance || 0).toFixed(3)} ${symbol}` : '—',
-      sub: isConnected ? '● Live on Mantle' : 'Connect wallet',
+      sub: isConnected ? `MNT $${mntPrice.toFixed(4)} (${mntChange >= 0 ? '+' : ''}${mntChange.toFixed(2)}%)` : 'Connect wallet',
       icon: '💼'
     },
-    { label: 'Active Agents', value: String(totalAgents || 0), sub: 'On-chain ERC-8004', icon: '🤖' },
+    { label: 'Active Agents', value: String(totalAgents || 0), sub: `${loopState?.cycleCount || 0} cycles run`, icon: '🤖' },
     {
       label: 'Vault Balance',
       value: isConnected ? `${vaultBalance} MNT` : '—',
       sub: isConnected ? 'In MantleMind Vault' : 'Connect wallet',
       icon: '◈'
     },
-    { label: 'Total Decisions', value: String(totalDecisions), sub: 'On-chain recorded', icon: '⚡' },
+    {
+      label: 'Goal Progress',
+      value: goalProgress !== null ? `${goalProgress}%` : '—',
+      sub: loopState?.running ? '● Loop running' : 'Start loop to track',
+      icon: '🎯'
+    },
   ];
 
   const suggestions = ['Maximize yield on my USDY', 'Auto-rebalance weekly', 'Hedge mETH position'];
@@ -293,7 +487,7 @@ export default function Dashboard() {
                         </span>
                       </div>
                       {step.tx && (
-                        <a href={'https://explorer.sepolia.mantle.xyz/tx/' + step.tx} target="_blank" rel="noreferrer"
+                        <a href={`${import.meta.env.VITE_EXPLORER_URL || 'https://explorer.sepolia.mantle.xyz'}/tx/${step.tx}`} target="_blank" rel="noreferrer"
                           style={{ fontSize:'10px', color:'#444', fontFamily:'JetBrains Mono', display:'block', marginTop:'2px' }}>
                           {step.tx.slice(0, 18)}... ↗
                         </a>
@@ -321,6 +515,111 @@ export default function Dashboard() {
               </div>
             )}
           </div>
+
+          {/* Autonomous Loop Control */}
+          <LoopControlPanel
+            goal={goal}
+            loopState={loopState}
+            loopActivity={loopActivity}
+            onStart={startLoop}
+            onStop={stopLoop}
+            onPause={pauseLoop}
+            onEmergency={emergencyStop}
+            onTick={manualTick}
+          />
+
+          {/* Intelligence Panel — Goal Progress + Narrative + Anomalies */}
+          {(goalProgress !== null || narrative || anomalies.length > 0 || marketData) && (
+            <div className="card">
+              <div className="section-header" style={{ marginBottom:'12px' }}>
+                <div className="card-label" style={{ margin:0 }}>Intelligence Feed</div>
+                <span style={{ fontSize:'10px', color:'#555' }}>AI-powered insights</span>
+              </div>
+
+              {/* Goal Progress Bar */}
+              {goalProgress !== null && (
+                <div style={{ marginBottom:'12px' }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'4px' }}>
+                    <span style={{ fontSize:'10px', color:'#555', textTransform:'uppercase', letterSpacing:'0.06em' }}>Goal Progress</span>
+                    <span style={{ fontSize:'11px', color: goalProgress >= 80 ? '#4ade80' : goalProgress >= 40 ? '#facc15' : '#888', fontWeight:600 }}>{goalProgress}%</span>
+                  </div>
+                  <div style={{ height:'3px', background:'rgba(255,255,255,0.06)', borderRadius:'2px' }}>
+                    <div style={{ height:'3px', width:`${goalProgress}%`, background: goalProgress >= 80 ? '#4ade80' : goalProgress >= 40 ? '#facc15' : '#fff', borderRadius:'2px', transition:'width 0.5s ease' }} />
+                  </div>
+                </div>
+              )}
+
+              {/* Market snapshot */}
+              {marketData?.pools?.[0] && (
+                <div style={{ display:'flex', gap:'8px', marginBottom:'10px', flexWrap:'wrap' }}>
+                  <div style={{ padding:'6px 10px', background:'rgba(255,255,255,0.03)', borderRadius:'6px', fontSize:'11px' }}>
+                    <span style={{ color:'#444' }}>Best Pool: </span>
+                    <span style={{ color:'#fff' }}>{marketData.pools[0].pair}</span>
+                    <span style={{ color:'#4ade80', marginLeft:'6px' }}>{marketData.pools[0].apr}% APR</span>
+                  </div>
+                  <div style={{ padding:'6px 10px', background:'rgba(255,255,255,0.03)', borderRadius:'6px', fontSize:'11px' }}>
+                    <span style={{ color:'#444' }}>Risk: </span>
+                    <span style={{ color: marketData.risk?.level === 'HIGH' ? '#ff4444' : marketData.risk?.level === 'MEDIUM' ? '#facc15' : '#4ade80' }}>
+                      {marketData.risk?.level} ({marketData.risk?.score}/10)
+                    </span>
+                  </div>
+                  <div style={{ padding:'6px 10px', background:'rgba(255,255,255,0.03)', borderRadius:'6px', fontSize:'11px' }}>
+                    <span style={{ color:'#444' }}>Mantle TVL: </span>
+                    <span style={{ color:'#fff' }}>${((marketData.defi?.mantleTvl || 0) / 1e6).toFixed(1)}M</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Anomaly alerts */}
+              {anomalies.map((a, i) => (
+                <div key={i} style={{ padding:'8px 10px', background:'rgba(255,100,100,0.05)', borderRadius:'6px', border:'0.5px solid rgba(255,100,100,0.2)', marginBottom:'8px', display:'flex', alignItems:'center', gap:'8px' }}>
+                  <span style={{ fontSize:'12px' }}>⚠️</span>
+                  <span style={{ fontSize:'11px', color:'#ff9999' }}>{a.msg}</span>
+                  <span className="badge" style={{ marginLeft:'auto', fontSize:'9px', color:'#ff6666', border:'0.5px solid rgba(255,100,100,0.3)', padding:'2px 6px', borderRadius:'4px' }}>{a.type}</span>
+                </div>
+              ))}
+
+              {/* AI Narrative */}
+              {narrative && (
+                <div style={{ padding:'10px 12px', background:'rgba(255,255,255,0.02)', borderRadius:'8px', borderLeft:'2px solid rgba(255,255,255,0.1)' }}>
+                  <div style={{ fontSize:'9px', color:'#444', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:'4px' }}>AI Narrative — Cycle #{loopState?.cycleCount}</div>
+                  <div style={{ fontSize:'12px', color:'#888', lineHeight:1.6 }}>{narrative}</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Economy Panel — P&L */}
+          {pnlData.length > 0 && (
+            <div className="card">
+              <div className="section-header" style={{ marginBottom:'12px' }}>
+                <div className="card-label" style={{ margin:0 }}>Agent Economy</div>
+                <span style={{ fontSize:'10px', color:'#555' }}>P&L · Earnings</span>
+              </div>
+              <div style={{ overflowX:'auto' }}>
+                <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                  <thead>
+                    <tr>{['Agent', 'Earned', 'Spent', 'Net P&L', 'Last Action'].map(h => (
+                      <th key={h} style={{ fontSize:'10px', color:'#444', textTransform:'uppercase', letterSpacing:'0.06em', padding:'4px 8px', textAlign:'left', borderBottom:'0.5px solid rgba(255,255,255,0.06)' }}>{h}</th>
+                    ))}</tr>
+                  </thead>
+                  <tbody>
+                    {pnlData.slice(0, 5).map((p, i) => (
+                      <tr key={i}>
+                        <td style={{ fontSize:'11px', color:'#fff', padding:'6px 8px', fontFamily:'JetBrains Mono' }}>#{p.agent_id}</td>
+                        <td style={{ fontSize:'11px', color:'#4ade80', padding:'6px 8px', fontFamily:'JetBrains Mono' }}>{(p.total_earned || 0).toFixed(4)}</td>
+                        <td style={{ fontSize:'11px', color:'#ff9999', padding:'6px 8px', fontFamily:'JetBrains Mono' }}>{(p.total_spent || 0).toFixed(4)}</td>
+                        <td style={{ fontSize:'11px', padding:'6px 8px', fontFamily:'JetBrains Mono', color: (p.net_pnl || 0) >= 0 ? '#4ade80' : '#ff4444' }}>
+                          {(p.net_pnl || 0) >= 0 ? '+' : ''}{(p.net_pnl || 0).toFixed(4)}
+                        </td>
+                        <td style={{ fontSize:'10px', color:'#555', padding:'6px 8px' }}>{p.last_action || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Agent Workforce */}
           <div className="card">

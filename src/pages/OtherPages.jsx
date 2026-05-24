@@ -3,6 +3,10 @@ import { useAccount } from 'wagmi';
 import { useOnChainEvents } from '../hooks/useEvents';
 import { ADDRESSES } from '../contracts/addresses';
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const EXPLORER_URL = import.meta.env.VITE_EXPLORER_URL || 'https://explorer.sepolia.mantle.xyz';
+
+
 const TX_FILTERS = ['All', 'DEPLOY', 'HIRE', 'PAY', 'FIRE', 'DECISION'];
 const EXPLORER = 'https://explorer.sepolia.mantle.xyz/tx/';
 
@@ -94,7 +98,7 @@ export function Settings() {
 
   const [backendStatus, setBackendStatus] = useState('checking');
   useEffect(() => {
-    fetch('http://localhost:3001/api/health')
+    fetch(`${API_BASE}/api/health`)
       .then(r => r.json())
       .then(d => setBackendStatus(d.status === 'ok' ? 'connected' : 'error'))
       .catch(() => setBackendStatus('offline'));
@@ -109,7 +113,7 @@ export function Settings() {
   // Load saved telegram info
   useEffect(() => {
     if (!address) return;
-    fetch('http://localhost:3001/api/users/' + address)
+    fetch(`${API_BASE}/api/users/` + address)
       .then(r => r.json())
       .then(d => {
         if (d.success && d.data) {
@@ -129,7 +133,7 @@ export function Settings() {
 
     try {
       // Save to Supabase via backend
-      const saveRes = await fetch('http://localhost:3001/api/users/save', {
+      const saveRes = await fetch(`${API_BASE}/api/users/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -142,7 +146,7 @@ export function Settings() {
       if (!saveData.success) throw new Error(saveData.error);
 
       // Send test message
-      const msgRes = await fetch('http://localhost:3001/api/telegram/send', {
+      const msgRes = await fetch(`${API_BASE}/api/telegram/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -164,7 +168,7 @@ export function Settings() {
   const testTelegram = async () => {
     if (!tgChatId) return;
     try {
-      await fetch('http://localhost:3001/api/realclaw/command', {
+      await fetch(`${API_BASE}/api/realclaw/command`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
