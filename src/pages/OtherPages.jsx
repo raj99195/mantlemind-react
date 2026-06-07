@@ -374,15 +374,6 @@ export function Settings() {
           ))}
         </div>
 
-        {/* Danger Zone */}
-        <div className="card" style={{ border:'0.5px solid rgba(255,100,100,0.2)' }}>
-          <div className="card-label" style={{ color:'#ff6666' }}>Danger Zone</div>
-          <div style={{ display:'flex', gap:'10px' }}>
-            <button className="btn btn-outline" style={{ fontSize:'12px' }}>Pause All Agents</button>
-            <button className="btn btn-outline" style={{ fontSize:'12px' }}>Withdraw All Funds</button>
-          </div>
-        </div>
-
       </div>
     </div>
   );
